@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-24
+
 ### Upgrade notes
 
 - **The `dev` extra is now the `dev` dependency group (#398)** — `pip install -e ".[dev]"` no longer installs the contributor tools, and the published wheel and sdist no longer carry a `dev` extra (their runtime dependencies are unchanged). Install them with `make install` or `python -m pip install -e . --group dev`, which needs pip 25.1 or later (`python -m pip install --upgrade pip`). Refs #398.
@@ -23,11 +25,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The Makefile is the canonical local and CI interface (#379)** — new targets: `doctor` (checks Python 3.11+, `ruff`, `mypy`, `pytest`, `pytest-cov` and `pytest-asyncio`; exits non-zero without a success line if any is missing), `format-check` (`ruff format --check .`), `verify` (`check` + `test`, no Docker), `integration` (the run-owned Docker lifecycle in `scripts/run_integration.py`: start, readiness wait, `pytest -m integration -v`, the container log on a failure, removal of the container and its anonymous volumes on success, failure, SIGINT or SIGTERM; the first failing step's exit status, or 128 + the signal number) and `integration-local`. `lint`, `format-check` and `typecheck` use the same paths and flags as CI, `format` is the only target that edits files, `test` takes extra pytest arguments in `PYTEST_ARGS`, `clean` also removes `.ruff_cache`, `.coverage`, `coverage.xml` and `htmlcov` (all gitignored, generated files), and `make help` groups the targets by purpose. Refs #379.
 
+* remove the App-owned agent-review publisher ([#397](https://github.com/cubrid-lab/cubrid-mcp-server/issues/397)) ([e5bf28e](https://github.com/cubrid-lab/cubrid-mcp-server/commit/e5bf28e006f8c005c7d9334ed87ee3531bf61eb2))
+
 ### Documentation
 
 - **Install instructions use the `dev` group (#398)** — `CONTRIBUTING.md`, the README (English and Korean), `scripts/doctor.py` and `THIRD_PARTY_LICENSES.md` replace `.[dev]` with `--group dev`, document the pip 25.1 requirement and the Makefile overrides, and explain that the dev table's `cubrid-mcp-server` attribution is hand-kept because installed metadata does not record group membership. Refs #398.
 
 - **Make targets in the contributor docs (#379)** — `CONTRIBUTING.md`, `AGENTS.md`, the PR template and the README development section (English and Korean) describe the new targets, the `make integration` variables and that CI calls the same targets. Refs #379.
+
+* **agents:** require repository-local issue authoring checks ([#383](https://github.com/cubrid-lab/cubrid-mcp-server/issues/383)) ([4f04af7](https://github.com/cubrid-lab/cubrid-mcp-server/commit/4f04af7b503cae0e2fcc97b79326a629d9e68aea))
+* enforce repository-local issue drafting ([4f04af7](https://github.com/cubrid-lab/cubrid-mcp-server/commit/4f04af7b503cae0e2fcc97b79326a629d9e68aea))
+* **ko:** replace the mistranslated redaction term in the Korean docs ([#389](https://github.com/cubrid-lab/cubrid-mcp-server/issues/389)) ([2621d8b](https://github.com/cubrid-lab/cubrid-mcp-server/commit/2621d8b415a1dcf7ea8a34fab758126bb6b5f216)), refs [#290](https://github.com/cubrid-lab/cubrid-mcp-server/issues/290)
 
 ### CI
 
