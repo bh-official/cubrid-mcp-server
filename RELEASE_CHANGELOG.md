@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.3](https://github.com/cubrid-lab/cubrid-mcp-server/compare/v0.5.2...v0.5.3) (2026-10-24)
+
+
+### Changed
+
+* remove the App-owned agent-review publisher ([#397](https://github.com/cubrid-lab/cubrid-mcp-server/issues/397)) ([e5bf28e](https://github.com/cubrid-lab/cubrid-mcp-server/commit/e5bf28e006f8c005c7d9334ed87ee3531bf61eb2))
+
+
+### Documentation
+
+* **agents:** require repository-local issue authoring checks ([#383](https://github.com/cubrid-lab/cubrid-mcp-server/issues/383)) ([4f04af7](https://github.com/cubrid-lab/cubrid-mcp-server/commit/4f04af7b503cae0e2fcc97b79326a629d9e68aea))
+* enforce repository-local issue drafting ([4f04af7](https://github.com/cubrid-lab/cubrid-mcp-server/commit/4f04af7b503cae0e2fcc97b79326a629d9e68aea))
+* **ko:** replace the mistranslated redaction term in the Korean docs ([#389](https://github.com/cubrid-lab/cubrid-mcp-server/issues/389)) ([2621d8b](https://github.com/cubrid-lab/cubrid-mcp-server/commit/2621d8b415a1dcf7ea8a34fab758126bb6b5f216)), closes [#290](https://github.com/cubrid-lab/cubrid-mcp-server/issues/290)
+
 ## [0.5.2](https://github.com/cubrid-lab/cubrid-mcp-server/compare/v0.5.1...v0.5.2) (2026-10-20)
 
 
