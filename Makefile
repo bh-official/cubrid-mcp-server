@@ -1,4 +1,4 @@
-.PHONY: help install doctor lint format-check format typecheck check test verify integration integration-local agent-eval-check clean release-check
+.PHONY: help install doctor lint format-check format typecheck check test verify integration integration-local docker-up docker-down docker-clean agent-eval-check clean release-check
 
 # Every tool runs through the selected interpreter, so an activated virtualenv is
 # honored even when PATH lists another one. Override any of them on the command line,
@@ -10,9 +10,18 @@ MYPY ?= $(PYTHON) -m mypy
 SRC = cubrid_mcp_server
 # Extra pytest arguments for `make test`, e.g. PYTEST_ARGS="-k config -x".
 PYTEST_ARGS ?=
-# `make integration`: the cubrid/cubrid image tag and the host port for its broker.
+# The CUBRID of docker-compose.yml: `make docker-up` runs it as the persistent default
+# Compose project (manual work), `make integration` as a run-owned project that it always
+# removes (scripts/run_integration.py). CUBRID_VERSION is the cubrid/cubrid image tag and
+# CUBRID_TEST_PORT the broker's host port for both. INTEGRATION_PORT is the older name for
+# the `make integration` port, kept for compatibility: when set, it wins for that target.
+COMPOSE ?= docker compose --file docker-compose.yml
 CUBRID_VERSION ?= 11.4
-INTEGRATION_PORT ?= 33000
+CUBRID_TEST_PORT ?= 33000
+INTEGRATION_PORT ?= $(CUBRID_TEST_PORT)
+# Where `make test` and `make integration` write JUnit XML, coverage.xml, summary.json and
+# environment.json (gitignored; `make clean` removes it).
+RESULTS ?= test-results
 
 ##@ General
 
@@ -46,13 +55,18 @@ check: lint format-check typecheck ## Run lint, format-check and typecheck (no t
 
 ##@ Tests
 
-test: ## Run offline unit tests with coverage; fails below fail_under (writes coverage.xml)
-	$(PYTEST) -m "not integration" --cov=$(SRC) --cov-report=term-missing --cov-report=xml $(PYTEST_ARGS)
+test: ## Run offline unit tests with coverage; fails below fail_under (writes coverage.xml and test-results/test/)
+	@rm -rf "./$(RESULTS)/test" && mkdir -p "./$(RESULTS)/test"
+	$(PYTEST) -m "not integration" --cov=$(SRC) --cov-report=term-missing --cov-report=xml:$(RESULTS)/test/coverage.xml --junitxml=$(RESULTS)/test/junit.xml $(PYTEST_ARGS); \
+		status=$$?; \
+		cp -f $(RESULTS)/test/coverage.xml coverage.xml 2>/dev/null; \
+		$(PYTHON) scripts/report_results.py summarize --lane test --results-dir $(RESULTS)/test --coverage $(RESULTS)/test/coverage.xml --exit-code $$status; \
+		exit $$status
 
 verify: check test ## Run check and test (offline; no Docker, no database)
 
-integration: ## Start a run-owned Docker CUBRID, run integration tests, always remove it (CUBRID_VERSION, INTEGRATION_PORT)
-	$(PYTHON) scripts/run_integration.py --cubrid-version "$(CUBRID_VERSION)" --port "$(INTEGRATION_PORT)" --pytest "$(PYTEST)"
+integration: ## Start a run-owned Compose CUBRID, run integration tests, always remove it (CUBRID_VERSION, CUBRID_TEST_PORT)
+	$(PYTHON) scripts/run_integration.py --cubrid-version "$(CUBRID_VERSION)" --port "$(INTEGRATION_PORT)" --pytest "$(PYTEST)" --results-dir "$(RESULTS)/integration"
 
 integration-local: ## Run integration tests against an already-running CUBRID (CUBRID_HOST, CUBRID_PORT, ...)
 	$(PYTEST) -m "integration" -q
@@ -61,10 +75,21 @@ agent-eval-check: ## Validate the agent-evals tasks and re-grade their fixtures 
 	$(PYTHON) scripts/agent_eval.py validate
 	$(PYTHON) scripts/agent_eval.py check
 
+##@ Docker (persistent local CUBRID for manual work; make integration uses its own project)
+
+docker-up: ## Start the Compose CUBRID (demodb on 127.0.0.1:CUBRID_TEST_PORT) and wait until healthy
+	CUBRID_VERSION="$(CUBRID_VERSION)" CUBRID_TEST_PORT="$(CUBRID_TEST_PORT)" $(COMPOSE) up --detach --wait cubrid
+
+docker-down: ## Stop and remove the Compose container and network; keeps the data volume
+	$(COMPOSE) down
+
+docker-clean: ## Remove the Compose container, network and data volume (deletes demodb)
+	$(COMPOSE) down --volumes
+
 ##@ Maintenance
 
 clean: ## Remove generated build, cache and coverage artifacts
-	rm -rf build/ dist/ *.egg-info .pytest_cache .mypy_cache .ruff_cache .coverage coverage.xml htmlcov
+	rm -rf build/ dist/ *.egg-info .pytest_cache .mypy_cache .ruff_cache .coverage coverage.xml htmlcov test-results
 
 ##@ Release
 

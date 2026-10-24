@@ -46,9 +46,13 @@ jobs call these targets); `make help` lists them by group.
 - `make format` — the only target that rewrites files
 - `make test` — offline unit tests with coverage, enforcing `fail_under` (95); no database
 - `make verify` — `check` + `test`; no Docker
-- `make integration` — integration tests on a run-owned Docker CUBRID that is always removed
-  (`CUBRID_VERSION`, default 11.4; `INTEGRATION_PORT`, default 33000)
+- `make integration` — integration tests on a run-owned Compose project of the `docker-compose.yml`
+  service, always removed with `down --volumes` (`CUBRID_VERSION`, default 11.4; `CUBRID_TEST_PORT`,
+  default 33000; the older `INTEGRATION_PORT` still works and wins when set)
 - `make integration-local` — integration tests against an already-running CUBRID (`CUBRID_*` variables)
+- `make docker-up` / `docker-down` / `docker-clean` — the persistent local CUBRID of `docker-compose.yml`
+  (service `cubrid`, `demodb` on `127.0.0.1:$CUBRID_TEST_PORT`) for manual work; `docker-down` keeps
+  the data volume, `docker-clean` deletes it. `make integration` never touches that project.
 - `make agent-eval-check` — re-grade the opt-in agent evaluation fixtures in [`agent-evals/`](agent-evals/README.md) (offline; no model, no database)
 - `make release-check VERSION=x.y.z` — read-only release consistency gate (run by `release-please.yml` and `publish-pypi.yml`)
 
@@ -139,6 +143,29 @@ SQL execution restrictions, audit records, timeout/connection safety and MCP
 stdout protocol. Changes to `safety.py`, `database.py`, `audit.py`,
 `server.py`, workflow permissions and publishing require explicit
 security/invariant assessment irrespective of implementation tool.
+
+## PR overlap and execution precedence
+
+- Before creating a PR, check its linked issue's current decision and
+  dependencies, open PRs that affect the same behavior and relevant changes
+  merged to `main`. Record `Supersedes #N`, `Depends on #N` or
+  `Parallel to #N` with a brief reason, or `None`.
+- Select the canonical implementation by accepted behavior, safety, test
+  evidence and maintainer direction, not PR number or creation time. Check
+  again against current `main` before merge. A passing CI job or optional
+  AI review does not waive unresolved prerequisites, read-only/write-mode
+  security reviews, protected-path approval or a release decision.
+- After merging, reconcile displaced open PRs and linked issues: comment
+  and close truly superseded work with its replacement link, or explain why
+  valid parallel work remains. Preserve external contributor discussion and
+  ownership.
+- A policy decision also requires checking open issue/PR instructions and
+  contributor templates for conflicting older text; fix it in the same review
+  cycle or record a focused follow-up.
+- Issue `priority: ...` is urgency, `size: ...` is effort, and PR readiness
+  depends on satisfied prerequisites, required final-head CI, safety and
+  maintainer judgment. Prioritize the next executable item and explain an
+  exception in its local issue. Do not create a new check, bot or merge gate.
 
 ## Issue specification and ownership
 

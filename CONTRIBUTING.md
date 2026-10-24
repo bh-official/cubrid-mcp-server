@@ -36,7 +36,7 @@ through the same interpreter (`$(PYTHON) -m ...`, `PYTHON ?= python3`); override
 `make lint PYTHON=.venv/bin/python`. `make doctor` then checks that
 Python 3.11+, `ruff`, `mypy`, `pytest`, `pytest-cov` and `pytest-asyncio` are
 available; it exits non-zero, without a success line, if any is missing. Docker
-is reported but optional (only `make integration` needs it). `make help` lists
+is reported but optional (only `make integration` and the `docker-*` targets need it). `make help` lists
 every target, grouped by purpose.
 
 ## Local Checks Before Pushing
@@ -58,8 +58,9 @@ make format        # ruff format . + ruff check --fix . (the only target that ed
 ```bash
 make test               # offline unit tests with coverage; fails below fail_under (95)
 make verify             # make check + make test; no Docker, no database
-make integration        # integration tests on a Docker CUBRID it starts and removes
+make integration        # integration tests on a Compose CUBRID it starts and removes
 make integration-local  # integration tests against a CUBRID you already run
+make docker-up          # a persistent local CUBRID for manual work (Docker Compose)
 ```
 
 `make test` runs `pytest -m "not integration"` with `--cov=cubrid_mcp_server`,
@@ -67,27 +68,70 @@ so the `fail_under = 95` floor in `pyproject.toml` is enforced locally exactly a
 in CI. It writes `coverage.xml` (CI uploads that file to Codecov); extra pytest
 arguments go in `PYTEST_ARGS`, for example `make test PYTEST_ARGS="-k config -x"`.
 `make clean` removes only generated, gitignored artifacts (build output, caches,
-`.coverage`, `coverage.xml`, `htmlcov/`).
+`.coverage`, `coverage.xml`, `htmlcov/`, `test-results/`).
+
+### Test results
+
+`make test` and `make integration` also write their results under the gitignored
+`test-results/` directory, which each run replaces for its lane:
+
+| Path | Written by | Content |
+|------|------------|---------|
+| `test-results/test/junit.xml`, `coverage.xml`, `summary.json` | `make test` | pytest JUnit XML, the Cobertura coverage report (the root `coverage.xml` is a copy for Codecov) and the summary |
+| `test-results/integration/junit.xml`, `summary.json`, `environment.json` | `make integration` | JUnit XML, the summary, and the Python, package and CUBRID versions, platform and command (never credentials) |
+| `test-results/integration/logs/cubrid.log` | `make integration`, on a failure only | the service log |
+
+`scripts/report_results.py` writes `summary.json` (`schema_version`, `status`,
+`counts` and, for `make test`, `coverage`) and each command ends with a one-line
+summary of the same status and counts, for example
+`test: PASS selected=1665 passed=1665 ... coverage=99.31% -> test-results/test/summary.json`.
+The status is `PASS`, `FAIL` (a failed or errored test, or a non-zero exit status such
+as a missed coverage floor) or `INCOMPLETE` (no JUnit file, nothing collected, or no
+test passed because every selected test skipped); `INCOMPLETE` is never `PASS`. The
+exit status of both commands is unchanged. `xpassed` is always 0 because JUnit XML
+cannot distinguish an unexpected pass from a pass.
+
+CI publishes the same results on every run of `make test` (the `lint-and-test` job of
+`ci.yml`) and `make integration` (`ci.yml` and `integration-full.yml`), pass or fail:
+the one-line summary is appended to the run's job summary
+(`scripts/report_results.py step-summary`), and the whole `test-results/` tree is
+uploaded as the `test-results-test-py<python>`,
+`test-results-integration-cubrid<cubrid>` or
+`test-results-integration-py<python>-cubrid<cubrid>` artifact, kept for 7 days. This adds
+no permissions: the workflows keep `contents: read` and the artifacts are readable by
+anyone who can read the run.
 
 ### Running the Integration Suite
 
-`make integration` needs only Docker. It starts its own uniquely named
-`cubrid/cubrid:<CUBRID_VERSION>` container (11.4 by default) with `demodb`,
-publishes the broker on host port `INTEGRATION_PORT` (33000 by default), waits
-for `demodb` to answer, runs `pytest -m integration -v` against it and then
-always removes that container and its anonymous volumes, on success, failure or
-Ctrl-C (SIGINT/SIGTERM). On a failure it prints the container log first. The
-exit status is the first failing step's; a cleanup failure fails an otherwise
-successful run. CI's live jobs run the same target with the matrix version:
+`make integration` needs only Docker (with the Compose plugin). It starts the
+`cubrid` service of the root `docker-compose.yml`, the same definition
+`make docker-up` uses (`cubrid/cubrid:<CUBRID_VERSION>`, 11.4 by default, with
+`demodb`), as a Compose project of its own named `cubrid-mcp-it-<random id>`,
+publishes the broker on `127.0.0.1:<CUBRID_TEST_PORT>` (33000 by default) and
+waits until the service's health check passes (`up --detach --wait`). It then runs
+`pytest -m integration -v` against it and always takes that project down with
+`down --volumes`, removing its container, network and volumes, on success,
+failure, a readiness failure or Ctrl-C (SIGINT/SIGTERM). On a failure it prints
+the service log first. The exit status is the first failing step's (128 + the
+signal number after a signal); a cleanup failure fails an otherwise successful
+run. CI's live jobs run the same target with the matrix version:
 
 ```bash
 make integration                                            # CUBRID 11.4 on port 33000
-make integration CUBRID_VERSION=11.2 INTEGRATION_PORT=33524  # another version or a free port
+make integration CUBRID_VERSION=11.2 CUBRID_TEST_PORT=33524  # another version or a free port
 ```
 
-The test endpoint is pinned to `127.0.0.1:$INTEGRATION_PORT/demodb` as `dba`, so
-exported `CUBRID_*` variables cannot redirect the run. No other container, image
-or named volume is touched.
+`CUBRID_TEST_PORT` is the one port variable of `make integration` and
+`make docker-up`. `INTEGRATION_PORT`, its older name for `make integration`, still
+works and wins when set (`make integration INTEGRATION_PORT=33524`).
+
+The test endpoint is pinned to `127.0.0.1:<port>/demodb` as `dba`, so exported
+`CUBRID_*` variables cannot redirect the run, and the project name is passed
+explicitly, so `COMPOSE_PROJECT_NAME` cannot either. Because every run has its own
+project, two runs on different ports do not interfere, and a running
+`make docker-up` lab (the default or your `COMPOSE_PROJECT_NAME` project) is never
+stopped or emptied; only the host port has to differ. No other container, image or
+volume is touched.
 
 To run the suite against a CUBRID you manage yourself (with `demodb`), point the
 tests at it and use `make integration-local`:
@@ -100,6 +144,41 @@ export CUBRID_PASSWORD=""
 export CUBRID_DATABASE=demodb
 make integration-local
 ```
+
+### A Persistent Local CUBRID (Docker Compose)
+
+For manual work (trying the server from an MCP client, exploring the catalog,
+running `make integration-local` repeatedly), the root `docker-compose.yml`
+defines one service, `cubrid`: `cubrid/cubrid:<CUBRID_VERSION>` (11.4 by default)
+with `demodb`, its broker published only on `127.0.0.1:<CUBRID_TEST_PORT>`
+(33000 by default) and its data in named volumes (both the 11.4 and the pre-11.4 database paths). The health check runs
+`csql -u dba demodb -c 'SELECT 1;'` inside the container.
+
+```bash
+make docker-up                                             # start it and wait until healthy
+make docker-up CUBRID_VERSION=11.2 CUBRID_TEST_PORT=33400  # another version or a free port
+make docker-down                                           # remove the container and network; keep the data
+make docker-clean                                          # also delete the data volume (and demodb)
+```
+
+`make docker-down` keeps the volume, so the next `make docker-up` opens the same
+`demodb` with your tables in it; `make docker-clean` is the one target that
+deletes it. The service has no fixed container name: Docker Compose names the
+container, network and volume after the project (by default the checkout's
+directory name), so set `COMPOSE_PROJECT_NAME` to keep two checkouts apart, and
+use the same value for `docker-down` and `docker-clean`. Point the tests at it
+with `make integration-local`:
+
+```bash
+make docker-up
+export CUBRID_HOST=127.0.0.1 CUBRID_PORT=33000 CUBRID_USER=dba CUBRID_PASSWORD="" CUBRID_DATABASE=demodb
+make integration-local
+```
+
+`make integration` and CI start this same service, but as a separate,
+run-owned Compose project that they always remove, so they never touch your
+Compose data; a running Compose service only matters to them if both use the same
+host port (pick another `CUBRID_TEST_PORT` for one of them).
 
 ## What CI Enforces
 
@@ -192,8 +271,8 @@ The lanes check:
   floors, not the coverage gate, so it is a weaker lane than `make test`, not a
   replacement for it.
 - **`integration`** — `make integration CUBRID_VERSION=<matrix version>`: a
-  run-owned CUBRID container, `pytest -m integration`, the container log on a
-  failure and guaranteed container removal. `integration-full.yml` runs the same
+  run-owned Compose project of the `docker-compose.yml` service, `pytest -m
+  integration`, the service log on a failure and guaranteed `down --volumes`. `integration-full.yml` runs the same
   target for each matrix cell.
 - **`python scripts/lint_changelog.py`** — checks `CHANGELOG.md` structure and
   version ordering. In `[Unreleased]` and in releases after 0.4.0 it also
