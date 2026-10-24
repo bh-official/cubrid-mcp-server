@@ -14,12 +14,13 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def run_lint(tmp_path: Path, changelog: str) -> subprocess.CompletedProcess[str]:
+def run_lint(tmp_path: Path, changelog: str | None) -> subprocess.CompletedProcess[str]:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
     script = scripts / "lint_changelog.py"
     script.write_text((ROOT / "scripts/lint_changelog.py").read_text())
-    (tmp_path / "CHANGELOG.md").write_text(changelog)
+    if changelog is not None:
+        (tmp_path / "CHANGELOG.md").write_text(changelog)
     return subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
 
 
@@ -189,6 +190,54 @@ def test_section_check_runs_without_released_versions(tmp_path: Path) -> None:
     result = run_lint(tmp_path, "## [Unreleased]\n### Docs\n- Entry\n")
     assert result.returncode == 1
     assert "'### Docs' in [Unreleased] is not a standard section" in result.stderr
+
+
+def test_first_section_must_be_unreleased(tmp_path: Path) -> None:
+    result = run_lint(tmp_path, "## [0.2.0]\n## [Unreleased]\n")
+    assert result.returncode == 1
+    assert "ERROR: First section must be [Unreleased], got [0.2.0]" in result.stderr
+
+
+def test_exactly_one_unreleased_section_is_required(tmp_path: Path) -> None:
+    result = run_lint(tmp_path, "## [Unreleased]\n## [Unreleased]\n")
+    assert result.returncode == 1
+    assert "ERROR: Found 2 [Unreleased] sections, expected exactly 1" in result.stderr
+
+
+def test_duplicate_released_version_is_rejected(tmp_path: Path) -> None:
+    result = run_lint(tmp_path, "## [Unreleased]\n## [0.2.0]\n## [0.2.0]\n")
+    assert result.returncode == 1
+    assert "ERROR: Duplicate version section [0.2.0]" in result.stderr
+
+
+def test_ascending_versions_are_rejected(tmp_path: Path) -> None:
+    result = run_lint(tmp_path, "## [Unreleased]\n## [0.2.0]\n## [0.3.0]\n")
+    assert result.returncode == 1
+    assert (
+        "ERROR: [0.3.0] should come before [0.2.0] (versions must be in descending order)"
+        in result.stderr
+    )
+
+
+def test_invalid_pep440_header_warns_and_is_skipped(tmp_path: Path) -> None:
+    result = run_lint(tmp_path, "## [Unreleased]\n## [0.3.0]\n## [banana]\n## [0.2.0]\n")
+    assert result.returncode == 0, result.stderr
+    assert (
+        "WARNING: [banana] is not valid PEP 440, skipping ordering check for this entry"
+        in result.stderr
+    )
+
+
+def test_changelog_without_version_headers_is_rejected(tmp_path: Path) -> None:
+    result = run_lint(tmp_path, "# Changelog\n")
+    assert result.returncode == 1
+    assert "ERROR: No version sections found (expected '## [X.Y.Z]')" in result.stderr
+
+
+def test_missing_changelog_is_rejected(tmp_path: Path) -> None:
+    result = run_lint(tmp_path, None)
+    assert result.returncode == 1
+    assert "not found" in result.stderr
 
 
 def test_repository_changelog_passes() -> None:
